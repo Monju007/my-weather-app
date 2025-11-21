@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <link rel="manifest" href="manifest.json" />
+    <meta name="theme-color" content="#0f172a" />
+
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Weather App</title>
+
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        background: linear-gradient(180deg, #0f172a, #1e293b);
+        color: #e2e8f0;
+        margin: 0;
+        padding: 0;
+        display: flex;
+        justify-content: center;
+        min-height: 100vh;
+      }
+
+      .container {
+        width: 100%;
+        max-width: 500px;
+        padding: 15px;
+      }
+
+      h1 {
+        text-align: center;
+        margin: 5px 0 15px;
+        font-size: clamp(22px, 5vw, 28px);
+      }
+
+      .search-box {
+        display: flex;
+        gap: 10px;
+        margin-bottom: 15px;
+      }
+
+      input {
+        flex: 1;
+        padding: 12px;
+        font-size: 16px;
+        border-radius: 10px;
+        border: none;
+        outline: none;
+      }
+
+      button {
+        padding: 12px;
+        background: #38bdf8;
+        border: none;
+        border-radius: 10px;
+        font-weight: 700;
+        cursor: pointer;
+        color: #0f172a;
+        font-size: 15px;
+        min-width: 55px;
+      }
+
+      .location-btn {
+        width: 100%;
+        padding: 14px;
+        font-size: 16px;
+        border-radius: 10px;
+        background: #34d399;
+        margin-bottom: 15px;
+        color: #0f172a;
+      }
+
+      .weather-card {
+        background: rgba(255, 255, 255, 0.08);
+        padding: 18px;
+        border-radius: 12px;
+        margin-top: 12px;
+        text-align: center;
+        backdrop-filter: blur(5px);
+      }
+
+      .emoji {
+        font-size: clamp(45px, 12vw, 60px);
+        margin: 8px 0;
+      }
+
+      .forecast-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+        gap: 10px;
+        margin-top: 15px;
+      }
+
+      .day {
+        background: rgba(255, 255, 255, 0.06);
+        padding: 12px;
+        border-radius: 10px;
+      }
+
+      canvas {
+        width: 100% !important;
+        height: auto !important;
+        margin-top: 15px;
+        background: rgba(255, 255, 255, 0.06);
+        padding: 10px;
+        border-radius: 12px;
+        pointer-events: none; /* FIX: No click blocking */
+      }
+    </style>
+  </head>
+
+  <body>
+    <div class="container">
+      <h1>🌤 Weather App</h1>
+
+      <button class="location-btn" onclick="getLocationWeather()">
+        📍 Use My Location
+      </button>
+
+      <div class="search-box">
+        <input id="cityInput" placeholder="Search city..." />
+        <button id="searchBtn">🔍</button>
+      </div>
+
+      <div id="current" class="weather-card" style="display: none"></div>
+      <div id="forecast" class="weather-card" style="display: none"></div>
+
+      <canvas id="hourlyChart" style="display: none"></canvas>
+    </div>
+
+    <script>
+      let chart;
+
+      document
+        .getElementById("searchBtn")
+        .addEventListener("click", searchCity);
+
+      function icon(code) {
+        const map = {
+          0: "☀️",
+          1: "🌤️",
+          2: "⛅",
+          3: "☁️",
+          45: "🌫️",
+          48: "🌫️",
+          51: "🌦️",
+          61: "🌧️",
+          63: "🌧️",
+          65: "🌧️",
+          71: "❄️",
+          80: "🌦️",
+          95: "⛈️",
+        };
+        return map[code] || "🌡️";
+      }
+      document.addEventListener("DOMContentLoaded", () => {
+        const btn = document.getElementById("searchBtn");
+        btn.addEventListener("touchstart", (e) => {
+          e.preventDefault(); // prevents ghost click
+          searchCity();
+        });
+
+        btn.addEventListener("click", () => {
+          searchCity();
+        });
+      });
+
+      async function searchCity() {
+        const city = document.getElementById("cityInput").value.trim();
+        if (!city) return alert("Enter a city!");
+
+        const geoUrl =
+          "https://geocoding-api.open-meteo.com/v1/search?name=" +
+          encodeURIComponent(city) +
+          "&count=1";
+
+        const geo = await fetch(geoUrl);
+        const data = await geo.json();
+
+        if (!data.results) return alert("City not found!");
+
+        const { latitude, longitude, name, country } = data.results[0];
+
+        fetchWeather(latitude, longitude, name + ", " + country);
+      }
+
+      function getLocationWeather() {
+        if (!navigator.geolocation)
+          return alert("Your device does not support GPS!");
+
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            fetchWeather(
+              pos.coords.latitude,
+              pos.coords.longitude,
+              "Your Location"
+            );
+          },
+          () => alert("Location access denied. Enable GPS.")
+        );
+      }
+
+      async function fetchWeather(lat, lon, title) {
+        const url =
+          "https://api.open-meteo.com/v1/forecast?latitude=" +
+          lat +
+          "&longitude=" +
+          lon +
+          "&current_weather=true&hourly=temperature_2m&daily=weathercode,temperature_2m_max,temperature_2m_min&timezone=auto";
+
+        const res = await fetch(url);
+        const data = await res.json();
+
+        showCurrent(title, data.current_weather);
+        showForecast(data.daily);
+        showHourlyChart(data.hourly);
+      }
+
+      function showCurrent(title, cur) {
+        const box = document.getElementById("current");
+        box.style.display = "block";
+        box.innerHTML = `
+          <h2>${title}</h2>
+          <div class="emoji">${icon(cur.weathercode)}</div>
+          <h3>${cur.temperature}°C</h3>
+          <p>Wind: ${cur.windspeed} km/h</p>
+        `;
+      }
+
+      function showForecast(daily) {
+        const box = document.getElementById("forecast");
+        box.style.display = "block";
+
+        let html = "<h2>7-Day Forecast</h2><div class='forecast-grid'>";
+
+        daily.time.forEach((day, i) => {
+          html += `
+            <div class="day">
+              <strong>${day}</strong>
+              <div class="emoji">${icon(daily.weathercode[i])}</div>
+              <div>${daily.temperature_2m_max[i]}° / ${
+            daily.temperature_2m_min[i]
+          }°</div>
+            </div>`;
+        });
+
+        html += "</div>";
+        box.innerHTML = html;
+      }
+
+      function showHourlyChart(hourly) {
+        const canvas = document.getElementById("hourlyChart");
+        canvas.style.display = "block";
+
+        const labels = hourly.time.slice(0, 24).map((t) => t.split("T")[1]);
+        const temps = hourly.temperature_2m.slice(0, 24);
+
+        if (chart) chart.destroy();
+
+        chart = new Chart(canvas, {
+          type: "line",
+          data: {
+            labels,
+            datasets: [
+              {
+                label: "Temperature (°C)",
+                data: temps,
+                borderWidth: 2,
+                fill: false,
+                tension: 0.3,
+              },
+            ],
+          },
+        });
+      }
+    </script>
+
+    <script>
+      if ("serviceWorker" in navigator) {
+        navigator.serviceWorker.register("sw.js");
+      }
+    </script>
+  </body>
+</html>
